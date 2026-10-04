@@ -230,7 +230,9 @@ class StaticEmbedding(InputModule):
             )
             kwargs = {key: value for key, value in kwargs.items() if key in distill_kwargs}
 
-        device = get_device_name()
+        if kwargs.get("device") is None and "device" in distill_kwargs:
+            # No explicit device from the caller: pass the auto-detected one, as documented.
+            kwargs["device"] = get_device_name()
         static_model = distill(model_name, **kwargs)
         if isinstance(static_model.embedding, np.ndarray):
             embedding_weights = torch.from_numpy(static_model.embedding).contiguous()

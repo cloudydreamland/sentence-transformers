@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import math
+import sys
+import types
 from pathlib import Path
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from packaging.version import Version
 from tokenizers import Tokenizer
 from transformers import __version__ as transformers_version
 
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.sentence_transformer.modules import static_embedding as static_embedding_module
 from sentence_transformers.sentence_transformer.modules.static_embedding import StaticEmbedding
 
 try:
@@ -63,6 +68,80 @@ def test_from_distillation() -> None:
     # that checks the first dimension is close to 29525 and the second dimension is 32.
     assert abs(model.embedding.weight.shape[0] - 29525) < 5
     assert model.embedding.weight.shape[1] == 32
+
+
+def _install_fake_model2vec(monkeypatch, distill_fn) -> None:
+    """Make `from model2vec.distill import distill` resolve to `distill_fn` without the real package."""
+    fake_package = types.ModuleType("model2vec")
+    fake_distill_module = types.ModuleType("model2vec.distill")
+    fake_distill_module.distill = distill_fn
+    monkeypatch.setitem(sys.modules, "model2vec", fake_package)
+    monkeypatch.setitem(sys.modules, "model2vec.distill", fake_distill_module)
+
+
+def _stub_static_embedding_init(monkeypatch) -> None:
+    # from_distillation ends with `cls(tokenizer, ...)`; skip real initialization
+    # so the kwargs plumbing can be tested without downloading a tokenizer.
+    monkeypatch.setattr(StaticEmbedding, "__init__", lambda self, *args, **kwargs: None)
+
+
+def test_from_distillation_uses_detected_device(monkeypatch) -> None:
+    """With no explicit device, the auto-detected device must reach model2vec's distill (#4055)."""
+    calls: list[dict] = []
+
+    def fake_distill(
+        model_name,
+        vocabulary=None,
+        device=None,
+        pca_dims=None,
+        apply_zipf=True,
+        sif_coefficient=None,
+        token_remove_pattern=None,
+        quantize_to="float32",
+        use_subword=True,
+    ):
+        calls.append({"device": device})
+        return SimpleNamespace(embedding=np.zeros((4, 8), dtype=np.float32), tokenizer=object())
+
+    _install_fake_model2vec(monkeypatch, fake_distill)
+    _stub_static_embedding_init(monkeypatch)
+    monkeypatch.setattr(static_embedding_module, "get_device_name", lambda: "cpu")
+
+    StaticEmbedding.from_distillation("some/model")
+    assert calls == [{"device": "cpu"}]
+
+
+def test_from_distillation_respects_explicit_device(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    def fake_distill(model_name, device=None, **kwargs):
+        calls.append({"device": device})
+        return SimpleNamespace(embedding=np.zeros((4, 8), dtype=np.float32), tokenizer=object())
+
+    _install_fake_model2vec(monkeypatch, fake_distill)
+    _stub_static_embedding_init(monkeypatch)
+    monkeypatch.setattr(static_embedding_module, "get_device_name", lambda: "cpu")
+
+    StaticEmbedding.from_distillation("some/model", device="cuda:1")
+    assert calls == [{"device": "cuda:1"}]
+
+
+def test_from_distillation_does_not_inject_device_when_unsupported(monkeypatch) -> None:
+    """An older model2vec without a `device` parameter must not receive one."""
+    calls: list[dict] = []
+
+    def fake_distill(
+        model_name, vocabulary=None, pca_dims=None, apply_zipf=True, use_subword=True, quantize_to="float32"
+    ):
+        calls.append("called")
+        return SimpleNamespace(embedding=np.zeros((4, 8), dtype=np.float32), tokenizer=object())
+
+    _install_fake_model2vec(monkeypatch, fake_distill)
+    _stub_static_embedding_init(monkeypatch)
+    monkeypatch.setattr(static_embedding_module, "get_device_name", lambda: "cpu")
+
+    StaticEmbedding.from_distillation("some/model")
+    assert calls == ["called"]
 
 
 @skip_if_no_model2vec()
