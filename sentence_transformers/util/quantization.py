@@ -463,17 +463,28 @@ def quantize_embeddings(
     if embeddings.dtype in (np.uint8, np.int8):
         raise Exception("Embeddings to quantize must be float rather than int8 or uint8.")
 
+    # A 1D embedding (e.g. model.encode("one sentence")) is quantized as a
+    # single row and squeezed back, so every precision handles it like the
+    # elementwise ones already do.
+    squeeze_back = embeddings.ndim == 1
+
+    def _maybe_squeeze(result):
+        return result[0] if squeeze_back else result
+
+    if squeeze_back:
+        embeddings = embeddings.reshape(1, -1)
+
     if embeddings.ndim == 2 and embeddings.shape[0] == 0:
         # A (0, dim) matrix (e.g. a fully-masked multi-vector document) has nothing to calibrate or
         # pack: return the correctly-shaped empty output for the precision.
         dim = embeddings.shape[1]
         if precision.endswith("int8"):
-            return np.zeros((0, dim), dtype=np.int8 if precision == "int8" else np.uint8)
+            return _maybe_squeeze(np.zeros((0, dim), dtype=np.int8 if precision == "int8" else np.uint8))
         if precision.endswith("binary"):
-            return np.zeros((0, (dim + 7) // 8), dtype=np.int8 if precision == "binary" else np.uint8)
+            return _maybe_squeeze(np.zeros((0, (dim + 7) // 8), dtype=np.int8 if precision == "binary" else np.uint8))
 
     if precision == "float32":
-        return embeddings.astype(np.float32)
+        return _maybe_squeeze(embeddings.astype(np.float32))
 
     if precision.endswith("int8"):
         # Either use the 1. provided ranges, 2. the calibration dataset or 3. the provided embeddings
@@ -494,14 +505,16 @@ def quantize_embeddings(
 
         q_vals = np.clip(np.floor((embeddings - starts) / steps), 0, 255)
         if precision == "uint8":
-            return q_vals.astype(np.uint8)
+            return _maybe_squeeze(q_vals.astype(np.uint8))
         elif precision == "int8":
-            return (q_vals - 128).astype(np.int8)
+            return _maybe_squeeze((q_vals - 128).astype(np.int8))
 
     if precision == "binary":
-        return (np.packbits(embeddings > 0, axis=-1).reshape(embeddings.shape[0], -1) - 128).astype(np.int8)
+        return _maybe_squeeze(
+            (np.packbits(embeddings > 0, axis=-1).reshape(embeddings.shape[0], -1) - 128).astype(np.int8)
+        )
 
     if precision == "ubinary":
-        return np.packbits(embeddings > 0, axis=-1).reshape(embeddings.shape[0], -1)
+        return _maybe_squeeze(np.packbits(embeddings > 0, axis=-1).reshape(embeddings.shape[0], -1))
 
     raise ValueError(f"Precision {precision!r} is not supported")

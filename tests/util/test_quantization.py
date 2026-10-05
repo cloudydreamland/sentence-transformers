@@ -502,3 +502,18 @@ def test_semantic_search_usearch_binary_matches_ubinary(rescore: bool) -> None:
             assert sorted(entry["score"] for entry in binary_results) == sorted(
                 entry["score"] for entry in ubinary_results
             )
+
+
+@pytest.mark.parametrize("precision", ["float32", "int8", "uint8", "binary", "ubinary"])
+def test_quantize_embeddings_1d_matches_first_row_of_2d(precision: str) -> None:
+    """A 1D embedding (e.g. model.encode("one sentence")) must quantize like a
+    single row instead of crashing: the elementwise precisions already worked
+    for 1D, but binary/ubinary raised ``cannot reshape array of size ...``."""
+    rng = np.random.default_rng(seed=42)
+    embedding = rng.standard_normal(37).astype(np.float32)
+
+    quantized_1d = quantize_embeddings(embedding, precision=precision)
+    quantized_2d = quantize_embeddings(embedding.reshape(1, -1), precision=precision)
+
+    assert np.asarray(quantized_1d).ndim == 1
+    assert np.array_equal(np.asarray(quantized_1d), np.asarray(quantized_2d)[0])
