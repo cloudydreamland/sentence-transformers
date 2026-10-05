@@ -294,13 +294,18 @@ def mine_hard_negatives(
     columns = dataset.column_names
 
     if not anchor_column_name or anchor_column_name not in columns:
+        if not columns:
+            raise ValueError("The dataset has no columns to use as the anchor column.")
         anchor_column_name = columns[0]
 
     if not positive_column_name or positive_column_name not in columns:
+        if len(columns) < 2:
+            raise ValueError(
+                "The dataset does not have a second column to use as the positive column: "
+                f"it has {len(columns)} column(s) {columns}. Specify `anchor_column_name` "
+                "and `positive_column_name` to select columns explicitly."
+            )
         positive_column_name = columns[1]
-
-    if not anchor_column_name and not positive_column_name and len(columns) != 2:
-        raise ValueError("Dataset must contain exactly two columns.")
 
     if as_triplets is not None:
         output_format = "triplet" if as_triplets else "n-tuple"

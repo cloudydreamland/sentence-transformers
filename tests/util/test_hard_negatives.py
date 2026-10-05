@@ -1753,3 +1753,27 @@ def test_missing_negatives_message_names_range_max(capsys: pytest.CaptureFixture
     )
     captured = capsys.readouterr()
     assert "Consider adjusting the range_max parameter if" in captured.out
+
+
+def test_one_column_dataset_raises_value_error(queries) -> None:
+    """A one-column dataset must raise a clear ValueError instead of a bare
+    IndexError from the positional fallback."""
+    dataset = Dataset.from_dict({"anchor": queries[:3]})
+    fake_model = SimpleNamespace()
+
+    with pytest.raises(ValueError, match="second column"):
+        mine_hard_negatives(dataset=dataset, model=fake_model, verbose=False)
+
+
+def test_missing_named_column_raises_value_error(queries) -> None:
+    """An explicitly named column that does not exist must raise a clear
+    ValueError instead of silently falling back to a positional default."""
+    dataset = Dataset.from_dict({"anchor": queries[:3]})
+
+    with pytest.raises(ValueError, match="second column"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=SimpleNamespace(),
+            positive_column_name="does_not_exist",
+            verbose=False,
+        )
