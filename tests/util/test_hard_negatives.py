@@ -1756,24 +1756,21 @@ def test_missing_negatives_message_names_range_max(capsys: pytest.CaptureFixture
 
 
 def test_one_column_dataset_raises_value_error(queries) -> None:
-    """A one-column dataset must raise a clear ValueError instead of a bare
-    IndexError from the positional fallback."""
-    dataset = Dataset.from_dict({"anchor": queries[:3]})
-    fake_model = SimpleNamespace()
-
-    with pytest.raises(ValueError, match="second column"):
-        mine_hard_negatives(dataset=dataset, model=fake_model, verbose=False)
-
-
-def test_missing_named_column_raises_value_error(queries) -> None:
-    """An explicitly named column that does not exist must raise a clear
-    ValueError instead of silently falling back to a positional default."""
     dataset = Dataset.from_dict({"anchor": queries[:3]})
 
-    with pytest.raises(ValueError, match="second column"):
-        mine_hard_negatives(
-            dataset=dataset,
-            model=SimpleNamespace(),
-            positive_column_name="does_not_exist",
-            verbose=False,
-        )
+    with pytest.raises(ValueError, match="Dataset must contain at least two columns"):
+        mine_hard_negatives(dataset=dataset, model=SimpleNamespace(), verbose=False)
+
+
+def test_default_column_selection_allows_extra_columns() -> None:
+    dataset = Dataset.from_dict({"query": ["q"], "positive": ["p"], "metadata": [1]})
+
+    result = mine_hard_negatives(
+        dataset=dataset,
+        model=ControlledNegativeScoreModel(),
+        corpus=["p", "n_more_similar", "n_far"],
+        num_negatives=1,
+        verbose=False,
+    )
+
+    assert result.to_dict() == {"query": ["q"], "positive": ["p"], "negative": ["n_more_similar"]}
